@@ -1,0 +1,55 @@
+# Adhan Playback System Configuration
+# Copy this file to config.yaml and adjust values for your location.
+
+location:
+  # GPS coordinates for prayer time calculation
+  latitude: 34.3078       # Sylmar, Los Angeles, CA
+  longitude: -118.4467
+  # IANA timezone identifier (used for all scheduling)
+  timezone: "America/Los_Angeles"
+
+calculation:
+  # Calculation method for prayer angles
+  # Options: NORTH_AMERICA (ISNA), MUSLIM_WORLD_LEAGUE, EGYPTIAN,
+  #          KARACHI, UMM_AL_QURA, DUBAI, MOON_SIGHTING_COMMITTEE,
+  #          KUWAIT, QATAR, SINGAPORE, TEHRAN, TURKEY
+  method: "NORTH_AMERICA"
+
+audio:
+  # Default adhan audio file (relative to project root)
+  default_file: "audio/adhan_default.mp3"
+
+  # Optional per-prayer overrides (comment out if not needed)
+  per_prayer:
+    fajr: "audio/adhan_fajr.mp3"
+    # dhuhr: "audio/adhan_custom.mp3"
+    # asr: "audio/adhan_custom.mp3"
+    # maghrib: "audio/adhan_custom.mp3"
+    # isha: "audio/adhan_custom.mp3"
+
+  # Playback volume (0-100). Keep at 100 and control level at the mixer.
+  volume: 100
+
+prayers:
+  # List of prayers to disable (skip playback). Remove from list to re-enable.
+  # Valid names: fajr, dhuhr, asr, maghrib, isha
+  disabled: []
+  # disabled:
+  #   - fajr
+
+scheduler:
+  # Time (HH:MM) to recalculate prayer times daily
+  daily_recalc_time: "00:05"
+
+  # Seconds after scheduled time to still play adhan (misfire recovery)
+  misfire_grace_seconds: 300
+
+logging:
+  # Log file path (relative to project root)
+  file: "logs/adhan.log"
+  # Max size per log file in bytes (5 MB)
+  max_bytes: 5242880
+  # Number of backup log files to keep
+  backup_count: 3
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
