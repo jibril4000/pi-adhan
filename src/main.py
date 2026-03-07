@@ -5,6 +5,8 @@ import signal
 import sys
 import threading
 
+from src.background import BackgroundPlayer
+from src.bluetooth_monitor import BluetoothMonitor
 from src.config import load_config, validate_audio_files
 from src.logger import setup_logging
 from src.player import AdhanPlayer
@@ -48,7 +50,18 @@ def main():
         logger.warning("Place MP3 files in the audio/ directory before prayer time")
 
     # Initialize components
-    player = AdhanPlayer(config)
+    background = None
+    bt_monitor = None
+
+    if config.background.enabled:
+        background = BackgroundPlayer(config)
+        background.start()
+        logger.info("Background audio enabled")
+
+        bt_monitor = BluetoothMonitor(background)
+        bt_monitor.start()
+
+    player = AdhanPlayer(config, background=background)
     scheduler = AdhanScheduler(config, player)
 
     # Signal handling for clean shutdown
@@ -58,6 +71,10 @@ def main():
         sig_name = signal.Signals(signum).name
         logger.info("Received %s, shutting down...", sig_name)
         scheduler.shutdown()
+        if bt_monitor:
+            bt_monitor.stop()
+        if background:
+            background.stop()
         shutdown_event.set()
 
     signal.signal(signal.SIGTERM, handle_signal)

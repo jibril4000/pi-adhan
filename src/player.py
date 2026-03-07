@@ -14,8 +14,9 @@ PLAYBACK_TIMEOUT = 600  # 10 minutes max
 class AdhanPlayer:
     """Plays adhan audio files using mpv."""
 
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, background=None):
         self.config = config
+        self.background = background
 
     def _resolve_audio_path(self, prayer_name: str) -> str:
         """Get the audio file path for a given prayer.
@@ -51,6 +52,10 @@ class AdhanPlayer:
             logger.error("Audio file not found: %s", audio_path)
             return False
 
+        # Fade out background before playing adhan
+        if self.background:
+            self.background.notify_adhan_start()
+
         volume = self.config.audio.volume
         cmd = [
             "mpv",
@@ -84,3 +89,7 @@ class AdhanPlayer:
         except FileNotFoundError:
             logger.error("mpv not found. Install it: sudo apt install mpv")
             return False
+        finally:
+            # Resume background after adhan (whether it succeeded or not)
+            if self.background:
+                self.background.notify_adhan_end()

@@ -83,6 +83,20 @@ class PrayersConfig:
 
 
 @dataclass
+class BackgroundConfig:
+    enabled: bool = False
+    file: str = ""
+    volume: int = 30
+    fade_duration: float = 3.0
+
+    def __post_init__(self):
+        if not (0 <= self.volume <= 100):
+            raise ValueError(f"Background volume must be 0-100, got {self.volume}")
+        if self.fade_duration < 0:
+            raise ValueError(f"Fade duration must be >= 0, got {self.fade_duration}")
+
+
+@dataclass
 class SchedulerConfig:
     daily_recalc_time: str = "00:05"
     misfire_grace_seconds: int = 300
@@ -111,6 +125,7 @@ class AppConfig:
     calculation: CalculationConfig
     audio: AudioConfig
     prayers: PrayersConfig
+    background: BackgroundConfig
     scheduler: SchedulerConfig
     logging: LoggingConfig
     base_dir: str = ""
@@ -162,6 +177,14 @@ def load_config(config_path: str) -> AppConfig:
         disabled=prayers_raw.get("disabled", []),
     )
 
+    bg_raw = raw.get("background", {})
+    background = BackgroundConfig(
+        enabled=bool(bg_raw.get("enabled", False)),
+        file=bg_raw.get("file", ""),
+        volume=int(bg_raw.get("volume", 30)),
+        fade_duration=float(bg_raw.get("fade_duration", 3.0)),
+    )
+
     sched_raw = raw.get("scheduler", {})
     scheduler = SchedulerConfig(
         daily_recalc_time=sched_raw.get("daily_recalc_time", "00:05"),
@@ -181,6 +204,7 @@ def load_config(config_path: str) -> AppConfig:
         calculation=calculation,
         audio=audio,
         prayers=prayers,
+        background=background,
         scheduler=scheduler,
         logging=logging_cfg,
         base_dir=base_dir,

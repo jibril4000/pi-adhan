@@ -37,6 +37,16 @@ prayers:
   # disabled:
   #   - fajr
 
+background:
+  # Enable 24/7 ambient background audio that pauses for adhan and Bluetooth
+  enabled: false
+  # Background audio file (relative to project root)
+  file: "audio/background.mp3"
+  # Playback volume (0-100) — keep low for ambient listening
+  volume: 30
+  # Fade out/in duration in seconds before/after adhan
+  fade_duration: 3.0
+
 scheduler:
   # Time (HH:MM) to recalculate prayer times daily
   daily_recalc_time: "00:05"

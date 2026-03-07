@@ -9,6 +9,7 @@ import pytest
 from src.config import (
     AppConfig,
     AudioConfig,
+    BackgroundConfig,
     CalculationConfig,
     LocationConfig,
     LoggingConfig,
@@ -27,6 +28,7 @@ def config(tmp_path):
         calculation=CalculationConfig(method="NORTH_AMERICA"),
         audio=AudioConfig(default_file="audio/adhan_default.mp3"),
         prayers=PrayersConfig(),
+        background=BackgroundConfig(),
         scheduler=SchedulerConfig(daily_recalc_time="00:05", misfire_grace_seconds=300),
         logging=LoggingConfig(),
         base_dir=str(tmp_path),
