@@ -7,6 +7,8 @@ import socket
 import subprocess
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from src.config import AppConfig
 
@@ -31,6 +33,8 @@ class BackgroundPlayer:
         self._watchdog_thread = None
         self.adhan_active = False
         self.bluetooth_active = False
+        self.quiet_active = False
+        self._tz = ZoneInfo(config.location.timezone)
 
     def start(self) -> None:
         """Launch the background mpv process and watchdog."""
@@ -71,8 +75,26 @@ class BackgroundPlayer:
         else:
             logger.warning("mpv IPC socket not ready after 5s")
 
+    def _is_quiet_time(self) -> bool:
+        """Check if the current time falls within any configured quiet hours."""
+        now = datetime.now(self._tz)
+        day_name = now.strftime("%A").lower()
+        current_minutes = now.hour * 60 + now.minute
+
+        for qh in self.config.background.quiet_hours:
+            if day_name not in qh.days:
+                continue
+            start_parts = qh.start.split(":")
+            end_parts = qh.end.split(":")
+            start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
+            end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
+
+            if start_minutes <= current_minutes < end_minutes:
+                return True
+        return False
+
     def _watchdog_loop(self) -> None:
-        """Restart mpv if it dies unexpectedly."""
+        """Restart mpv if it dies unexpectedly, and enforce quiet hours."""
         while not self._stop_event.is_set():
             self._stop_event.wait(WATCHDOG_INTERVAL)
             if self._stop_event.is_set():
@@ -81,6 +103,20 @@ class BackgroundPlayer:
                 logger.warning("Background mpv process died (exit code %d), restarting...",
                                self._process.returncode)
                 self._start_mpv()
+
+            # Check quiet hours
+            in_quiet = self._is_quiet_time()
+            with self._lock:
+                was_quiet = self.quiet_active
+                self.quiet_active = in_quiet
+
+            if in_quiet and not was_quiet:
+                logger.info("Entering quiet hours — pausing background audio")
+                self._set_pause(True)
+            elif not in_quiet and was_quiet:
+                logger.info("Quiet hours ended — resuming background audio")
+                if not self.adhan_active and not self.bluetooth_active:
+                    self._set_pause(False)
 
     def stop(self) -> None:
         """Stop the background mpv process and watchdog."""
@@ -159,11 +195,12 @@ class BackgroundPlayer:
         """Called when adhan is done."""
         with self._lock:
             self.adhan_active = False
-            should_resume = not self.bluetooth_active
+            should_resume = not self.bluetooth_active and not self.quiet_active
         if should_resume:
             self.fade_in()
         else:
-            logger.info("Bluetooth active, not resuming background after adhan")
+            logger.info("Not resuming background after adhan (bluetooth=%s, quiet=%s)",
+                        self.bluetooth_active, self.quiet_active)
 
     def notify_bluetooth_connect(self) -> None:
         """Called when a Bluetooth audio source connects."""
@@ -177,6 +214,8 @@ class BackgroundPlayer:
         """Called when Bluetooth audio source disconnects."""
         with self._lock:
             self.bluetooth_active = False
-            should_resume = not self.adhan_active
+            should_resume = not self.adhan_active and not self.quiet_active
         if should_resume:
             self.fade_in()
+        elif self.quiet_active:
+            logger.info("Bluetooth disconnected but in quiet hours, staying paused")

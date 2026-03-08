@@ -82,12 +82,39 @@ class PrayersConfig:
                 )
 
 
+VALID_DAYS = {
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+}
+
+
+@dataclass
+class QuietHoursConfig:
+    days: list[str] = field(default_factory=list)
+    start: str = "00:00"
+    end: str = "00:00"
+
+    def __post_init__(self):
+        self.days = [d.lower() for d in self.days]
+        for day in self.days:
+            if day not in VALID_DAYS:
+                raise ValueError(f"Unknown day '{day}'. Valid: {sorted(VALID_DAYS)}")
+        # Validate time formats
+        for t in (self.start, self.end):
+            parts = t.split(":")
+            if len(parts) != 2:
+                raise ValueError(f"Quiet hours time must be HH:MM, got '{t}'")
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError(f"Invalid quiet hours time: {t}")
+
+
 @dataclass
 class BackgroundConfig:
     enabled: bool = False
     file: str = ""
     volume: int = 30
     fade_duration: float = 3.0
+    quiet_hours: list[QuietHoursConfig] = field(default_factory=list)
 
     def __post_init__(self):
         if not (0 <= self.volume <= 100):
@@ -178,11 +205,19 @@ def load_config(config_path: str) -> AppConfig:
     )
 
     bg_raw = raw.get("background", {})
+    quiet_hours = []
+    for qh in bg_raw.get("quiet_hours", []):
+        quiet_hours.append(QuietHoursConfig(
+            days=qh.get("days", []),
+            start=qh.get("start", "00:00"),
+            end=qh.get("end", "00:00"),
+        ))
     background = BackgroundConfig(
         enabled=bool(bg_raw.get("enabled", False)),
         file=bg_raw.get("file", ""),
         volume=int(bg_raw.get("volume", 30)),
         fade_duration=float(bg_raw.get("fade_duration", 3.0)),
+        quiet_hours=quiet_hours,
     )
 
     sched_raw = raw.get("scheduler", {})
