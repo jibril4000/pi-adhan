@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import signal as sig
 import socket
 import subprocess
 import threading
@@ -31,6 +32,7 @@ class BackgroundPlayer:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._watchdog_thread = None
+        self._paused = False
         self.adhan_active = False
         self.bluetooth_active = False
         self.quiet_active = False
@@ -93,13 +95,29 @@ class BackgroundPlayer:
                 return True
         return False
 
+    def _freeze(self) -> None:
+        """Freeze mpv process using SIGSTOP (guaranteed to stop audio output)."""
+        if self._process and self._process.poll() is None and not self._paused:
+            os.kill(self._process.pid, sig.SIGSTOP)
+            self._paused = True
+            logger.debug("mpv process frozen (SIGSTOP)")
+
+    def _unfreeze(self) -> None:
+        """Resume mpv process using SIGCONT."""
+        if self._process and self._process.poll() is None and self._paused:
+            os.kill(self._process.pid, sig.SIGCONT)
+            self._paused = False
+            logger.debug("mpv process resumed (SIGCONT)")
+
     def _watchdog_loop(self) -> None:
         """Restart mpv if it dies unexpectedly, and enforce quiet hours."""
         while not self._stop_event.is_set():
             self._stop_event.wait(WATCHDOG_INTERVAL)
             if self._stop_event.is_set():
                 break
-            if self._process and self._process.poll() is not None:
+
+            # Only restart if not intentionally paused
+            if self._process and self._process.poll() is not None and not self._paused:
                 logger.warning("Background mpv process died (exit code %d), restarting...",
                                self._process.returncode)
                 self._start_mpv()
@@ -112,16 +130,22 @@ class BackgroundPlayer:
 
             if in_quiet and not was_quiet:
                 logger.info("Entering quiet hours — pausing background audio")
-                self._set_pause(True)
+                self._freeze()
             elif not in_quiet and was_quiet:
                 logger.info("Quiet hours ended — resuming background audio")
                 if not self.adhan_active and not self.bluetooth_active:
-                    self._set_pause(False)
+                    self._unfreeze()
 
     def stop(self) -> None:
         """Stop the background mpv process and watchdog."""
         self._stop_event.set()
         if self._process:
+            # Unfreeze first so terminate can reach it
+            if self._paused:
+                try:
+                    os.kill(self._process.pid, sig.SIGCONT)
+                except OSError:
+                    pass
             self._process.terminate()
             try:
                 self._process.wait(timeout=5)
@@ -152,11 +176,8 @@ class BackgroundPlayer:
     def _set_volume(self, volume: int) -> None:
         self._send_command(["set_property", "volume", volume])
 
-    def _set_pause(self, paused: bool) -> None:
-        self._send_command(["set_property", "pause", paused])
-
     def fade_out(self) -> None:
-        """Gradually reduce volume to 0, then pause."""
+        """Gradually reduce volume to 0, then freeze the process."""
         logger.info("Fading out background audio")
         step_delay = self.fade_duration / FADE_STEPS
         volume_step = self.volume / FADE_STEPS
@@ -166,14 +187,14 @@ class BackgroundPlayer:
             self._set_volume(vol)
             time.sleep(step_delay)
 
-        self._set_pause(True)
-        logger.info("Background audio faded out and paused")
+        self._freeze()
+        logger.info("Background audio faded out and stopped")
 
     def fade_in(self) -> None:
-        """Unpause and gradually increase volume."""
+        """Unfreeze the process and gradually increase volume."""
         logger.info("Fading in background audio")
         self._set_volume(0)
-        self._set_pause(False)
+        self._unfreeze()
 
         step_delay = self.fade_duration / FADE_STEPS
         volume_step = self.volume / FADE_STEPS
@@ -208,7 +229,8 @@ class BackgroundPlayer:
             self.bluetooth_active = True
             should_pause = not self.adhan_active
         if should_pause:
-            self.fade_out()
+            logger.info("Bluetooth connected — stopping background audio")
+            self._freeze()
 
     def notify_bluetooth_disconnect(self) -> None:
         """Called when Bluetooth audio source disconnects."""
@@ -216,6 +238,7 @@ class BackgroundPlayer:
             self.bluetooth_active = False
             should_resume = not self.adhan_active and not self.quiet_active
         if should_resume:
-            self.fade_in()
+            self._unfreeze()
+            logger.info("Bluetooth disconnected — background audio resumed")
         elif self.quiet_active:
             logger.info("Bluetooth disconnected but in quiet hours, staying paused")
