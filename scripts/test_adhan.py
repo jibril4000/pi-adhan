@@ -84,12 +84,15 @@ def main():
     audio_path = os.path.join(config.base_dir, config.audio.default_file)
     cmd.append(audio_path)
 
-    subprocess.run(cmd)
-
-    # Fade back in
-    if bg._process:
-        print("Fading background back in...")
-        bg.notify_adhan_end()
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\nAdhan interrupted.")
+    finally:
+        # Always fade back in, even on Ctrl+C
+        if bg._process:
+            print("Fading background back in...")
+            bg.notify_adhan_end()
 
     print("Done.")
 
