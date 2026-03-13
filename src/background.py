@@ -109,6 +109,29 @@ class BackgroundPlayer:
             self._paused = False
             logger.debug("mpv process resumed (SIGCONT)")
 
+    def _restart_mpv(self) -> None:
+        """Kill the current mpv process and start a fresh one.
+
+        Used instead of SIGCONT after long pauses (e.g. Bluetooth disconnect)
+        to avoid choppy audio from stale buffers.
+        """
+        logger.info("Restarting background mpv for clean audio state")
+        if self._process:
+            # Unfreeze first so terminate can reach it
+            if self._paused:
+                try:
+                    os.kill(self._process.pid, sig.SIGCONT)
+                except OSError:
+                    pass
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+            self._process = None
+        self._paused = False
+        self._start_mpv()
+
     def _watchdog_loop(self) -> None:
         """Restart mpv if it dies unexpectedly, and enforce quiet hours."""
         while not self._stop_event.is_set():
@@ -132,9 +155,9 @@ class BackgroundPlayer:
                 logger.info("Entering quiet hours — pausing background audio")
                 self._freeze()
             elif not in_quiet and was_quiet:
-                logger.info("Quiet hours ended — resuming background audio")
+                logger.info("Quiet hours ended — restarting background audio")
                 if not self.adhan_active and not self.bluetooth_active:
-                    self._unfreeze()
+                    self._restart_mpv()
 
     def stop(self) -> None:
         """Stop the background mpv process and watchdog."""
@@ -238,7 +261,7 @@ class BackgroundPlayer:
             self.bluetooth_active = False
             should_resume = not self.adhan_active and not self.quiet_active
         if should_resume:
-            self._unfreeze()
-            logger.info("Bluetooth disconnected — background audio resumed")
+            self._restart_mpv()
+            logger.info("Bluetooth disconnected — background audio restarted fresh")
         elif self.quiet_active:
             logger.info("Bluetooth disconnected but in quiet hours, staying paused")
