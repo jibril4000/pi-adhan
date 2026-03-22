@@ -8,10 +8,8 @@ import socket
 import subprocess
 import threading
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-from src.config import AppConfig
+from src.config import AppConfig, is_quiet_time
 
 logger = logging.getLogger("adhan.background")
 
@@ -36,7 +34,6 @@ class BackgroundPlayer:
         self.adhan_active = False
         self.bluetooth_active = False
         self.quiet_active = False
-        self._tz = ZoneInfo(config.location.timezone)
 
     def start(self) -> None:
         """Launch the background mpv process and watchdog."""
@@ -45,6 +42,13 @@ class BackgroundPlayer:
             return
 
         self._start_mpv()
+
+        # Check quiet hours immediately on startup (don't wait for watchdog cycle)
+        if self._is_quiet_time():
+            logger.info("Starting during quiet hours — pausing background audio")
+            self._freeze()
+            self.quiet_active = True
+
         self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._watchdog_thread.start()
 
@@ -79,21 +83,10 @@ class BackgroundPlayer:
 
     def _is_quiet_time(self) -> bool:
         """Check if the current time falls within any configured quiet hours."""
-        now = datetime.now(self._tz)
-        day_name = now.strftime("%A").lower()
-        current_minutes = now.hour * 60 + now.minute
-
-        for qh in self.config.background.quiet_hours:
-            if day_name not in qh.days:
-                continue
-            start_parts = qh.start.split(":")
-            end_parts = qh.end.split(":")
-            start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
-            end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
-
-            if start_minutes <= current_minutes < end_minutes:
-                return True
-        return False
+        return is_quiet_time(
+            self.config.background.quiet_hours,
+            self.config.location.timezone,
+        )
 
     def _freeze(self) -> None:
         """Freeze mpv process using SIGSTOP (guaranteed to stop audio output)."""
@@ -123,9 +116,11 @@ class BackgroundPlayer:
                     os.kill(self._process.pid, sig.SIGCONT)
                 except OSError:
                     pass
-            self._process.terminate()
             try:
+                self._process.terminate()
                 self._process.wait(timeout=5)
+            except (ProcessLookupError, OSError):
+                pass  # Process already dead
             except subprocess.TimeoutExpired:
                 self._process.kill()
             self._process = None
@@ -139,25 +134,28 @@ class BackgroundPlayer:
             if self._stop_event.is_set():
                 break
 
-            # Only restart if not intentionally paused
-            if self._process and self._process.poll() is not None and not self._paused:
-                logger.warning("Background mpv process died (exit code %d), restarting...",
-                               self._process.returncode)
-                self._start_mpv()
+            try:
+                # Only restart if not intentionally paused
+                if self._process and self._process.poll() is not None and not self._paused:
+                    logger.warning("Background mpv process died (exit code %d), restarting...",
+                                   self._process.returncode)
+                    self._start_mpv()
 
-            # Check quiet hours
-            in_quiet = self._is_quiet_time()
-            with self._lock:
-                was_quiet = self.quiet_active
-                self.quiet_active = in_quiet
+                # Check quiet hours
+                in_quiet = self._is_quiet_time()
+                with self._lock:
+                    was_quiet = self.quiet_active
+                    self.quiet_active = in_quiet
 
-            if in_quiet and not was_quiet:
-                logger.info("Entering quiet hours — pausing background audio")
-                self._freeze()
-            elif not in_quiet and was_quiet:
-                logger.info("Quiet hours ended — restarting background audio")
-                if not self.adhan_active and not self.bluetooth_active:
-                    self._restart_mpv()
+                if in_quiet and not was_quiet:
+                    logger.info("Entering quiet hours — pausing background audio")
+                    self._freeze()
+                elif not in_quiet and was_quiet:
+                    logger.info("Quiet hours ended — restarting background audio")
+                    if not self.adhan_active and not self.bluetooth_active:
+                        self._restart_mpv()
+            except Exception:
+                logger.exception("Error in background watchdog loop")
 
     def stop(self) -> None:
         """Stop the background mpv process and watchdog."""

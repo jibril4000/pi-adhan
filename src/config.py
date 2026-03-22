@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -244,6 +245,25 @@ def load_config(config_path: str) -> AppConfig:
         logging=logging_cfg,
         base_dir=base_dir,
     )
+
+
+def is_quiet_time(quiet_hours: list[QuietHoursConfig], timezone: str) -> bool:
+    """Check if the current time falls within any configured quiet hours."""
+    now = datetime.now(ZoneInfo(timezone))
+    day_name = now.strftime("%A").lower()
+    current_minutes = now.hour * 60 + now.minute
+
+    for qh in quiet_hours:
+        if day_name not in qh.days:
+            continue
+        start_parts = qh.start.split(":")
+        end_parts = qh.end.split(":")
+        start_minutes = int(start_parts[0]) * 60 + int(start_parts[1])
+        end_minutes = int(end_parts[0]) * 60 + int(end_parts[1])
+
+        if start_minutes <= current_minutes < end_minutes:
+            return True
+    return False
 
 
 def validate_audio_files(config: AppConfig) -> list[str]:

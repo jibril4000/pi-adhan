@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 
-from src.config import AppConfig
+from src.config import AppConfig, is_quiet_time
 
 logger = logging.getLogger("adhan.player")
 
@@ -46,6 +46,13 @@ class AdhanPlayer:
         Returns:
             True if playback succeeded, False otherwise.
         """
+        # Skip adhan during quiet hours
+        if self.config.background.quiet_hours and is_quiet_time(
+            self.config.background.quiet_hours, self.config.location.timezone
+        ):
+            logger.info("Skipping adhan for %s (quiet hours active)", prayer_name)
+            return False
+
         audio_path = self._resolve_audio_path(prayer_name)
 
         if not os.path.isfile(audio_path):
