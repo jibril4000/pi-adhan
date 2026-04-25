@@ -31,12 +31,18 @@ CATALOG_REFRESH_HOURS = 24
 
 
 class RadioPlayer:
-    """Streams the MMR catalog via mpv, pausing for adhan and Bluetooth."""
+    """Streams the MMR catalog via mpv, pausing for adhan and Bluetooth.
 
-    def __init__(self, config: AppConfig):
+    When a BackgroundPlayer is provided, RadioPlayer acts as the front-facing
+    player: during its schedule window it streams MMR tracks, and outside the
+    window it delegates adhan/bluetooth notifications to the background player.
+    """
+
+    def __init__(self, config: AppConfig, background_player=None):
         self.config = config
         self.volume = config.radio.volume
         self.fade_duration = config.radio.fade_duration
+        self._background = background_player
         self.api_client = MMRApiClient(
             api_url=config.radio.api_url,
             email=config.radio.email,
@@ -84,53 +90,66 @@ class RadioPlayer:
 
         # If we're already inside the play window, start immediately
         if self._catalog and self._is_in_window():
+            if self._background:
+                self._background.radio_active = True
+                self._background._freeze()
             self._start_playing()
 
     def stop(self) -> None:
-        """Shut down the radio completely."""
+        """Shut down the radio and background player completely."""
         self._stop_event.set()
         self._stop_playing()
+        if self._background:
+            self._background.stop()
         if os.path.exists(SOCKET_PATH):
             os.remove(SOCKET_PATH)
         logger.info("Radio stopped")
 
     def notify_adhan_start(self) -> None:
         """Called when adhan is about to play."""
-        with self._lock:
-            self.adhan_active = True
         if self._playing:
+            with self._lock:
+                self.adhan_active = True
             self.fade_out()
+        elif self._background:
+            self._background.notify_adhan_start()
 
     def notify_adhan_end(self) -> None:
         """Called when adhan playback is done."""
-        with self._lock:
-            self.adhan_active = False
-            should_resume = not self.bluetooth_active and self._playing
-        if should_resume:
-            self.fade_in()
-        else:
-            logger.info(
-                "Not resuming radio after adhan (bluetooth=%s, playing=%s)",
-                self.bluetooth_active, self._playing,
-            )
+        if self._playing:
+            with self._lock:
+                self.adhan_active = False
+                should_resume = not self.bluetooth_active
+            if should_resume:
+                self.fade_in()
+            else:
+                logger.info("Not resuming radio after adhan (bluetooth=%s)", self.bluetooth_active)
+        elif self._background:
+            self._background.notify_adhan_end()
 
     def notify_bluetooth_connect(self) -> None:
         """Called when a Bluetooth audio source connects."""
-        with self._lock:
-            self.bluetooth_active = True
-            should_pause = not self.adhan_active and self._playing
-        if should_pause:
-            logger.info("Bluetooth connected — pausing radio")
-            self._freeze()
+        if self._playing:
+            with self._lock:
+                self.bluetooth_active = True
+                should_pause = not self.adhan_active
+            if should_pause:
+                logger.info("Bluetooth connected — pausing radio")
+                self._freeze()
+        elif self._background:
+            self._background.notify_bluetooth_connect()
 
     def notify_bluetooth_disconnect(self) -> None:
         """Called when Bluetooth audio source disconnects."""
-        with self._lock:
-            self.bluetooth_active = False
-            should_resume = not self.adhan_active and self._playing
-        if should_resume:
-            self._restart_mpv()
-            logger.info("Bluetooth disconnected — radio restarted fresh")
+        if self._playing:
+            with self._lock:
+                self.bluetooth_active = False
+                should_resume = not self.adhan_active
+            if should_resume:
+                self._restart_mpv()
+                logger.info("Bluetooth disconnected — radio restarted fresh")
+        elif self._background:
+            self._background.notify_bluetooth_disconnect()
 
     # ── Fade control ─────────────────────────────────────────────
 
@@ -162,14 +181,21 @@ class RadioPlayer:
     # ── Schedule window ──────────────────────────────────────────
 
     def _is_in_window(self) -> bool:
-        """Check if the current time is within the configured play window."""
+        """Check if the current time is within any configured schedule window."""
         now = datetime.now(ZoneInfo(self.config.location.timezone))
-        start_h, start_m = map(int, self.config.radio.schedule_start.split(":"))
-        end_h, end_m = map(int, self.config.radio.schedule_end.split(":"))
+        day_name = now.strftime("%A").lower()
         current = now.hour * 60 + now.minute
-        start = start_h * 60 + start_m
-        end = end_h * 60 + end_m
-        return start <= current < end
+
+        for entry in self.config.radio.schedule:
+            if day_name not in entry.days:
+                continue
+            start_h, start_m = map(int, entry.start.split(":"))
+            end_h, end_m = map(int, entry.end.split(":"))
+            start = start_h * 60 + start_m
+            end = end_h * 60 + end_m
+            if start <= current < end:
+                return True
+        return False
 
     # ── Playback control ─────────────────────────────────────────
 
@@ -411,6 +437,10 @@ class RadioPlayer:
                 # ── Window transitions ───────────────────────
                 if in_window and not was_in_window:
                     logger.info("Entering play window — starting radio")
+                    if self._background:
+                        self._background.radio_active = True
+                        self._background._freeze()
+                        logger.info("Background audio frozen for radio window")
                     if not self._catalog:
                         self._try_login_and_fetch()
                     if self._catalog:
@@ -419,6 +449,11 @@ class RadioPlayer:
                 elif not in_window and was_in_window:
                     logger.info("Leaving play window — stopping radio")
                     self._stop_playing()
+                    if self._background:
+                        self._background.radio_active = False
+                        if not self._background.adhan_active and not self._background.bluetooth_active:
+                            self._background._restart_mpv()
+                            logger.info("Background audio resumed after radio window")
 
                 was_in_window = in_window
 

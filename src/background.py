@@ -34,6 +34,7 @@ class BackgroundPlayer:
         self.adhan_active = False
         self.bluetooth_active = False
         self.quiet_active = False
+        self.radio_active = False
 
     def start(self) -> None:
         """Launch the background mpv process and watchdog."""
@@ -152,7 +153,7 @@ class BackgroundPlayer:
                     self._freeze()
                 elif not in_quiet and was_quiet:
                     logger.info("Quiet hours ended — restarting background audio")
-                    if not self.adhan_active and not self.bluetooth_active:
+                    if not self.adhan_active and not self.bluetooth_active and not self.radio_active:
                         self._restart_mpv()
             except Exception:
                 logger.exception("Error in background watchdog loop")
@@ -237,7 +238,7 @@ class BackgroundPlayer:
         """Called when adhan is done."""
         with self._lock:
             self.adhan_active = False
-            should_resume = not self.bluetooth_active and not self.quiet_active
+            should_resume = not self.bluetooth_active and not self.quiet_active and not self.radio_active
         if should_resume:
             self.fade_in()
         else:
@@ -257,9 +258,11 @@ class BackgroundPlayer:
         """Called when Bluetooth audio source disconnects."""
         with self._lock:
             self.bluetooth_active = False
-            should_resume = not self.adhan_active and not self.quiet_active
+            should_resume = not self.adhan_active and not self.quiet_active and not self.radio_active
         if should_resume:
             self._restart_mpv()
             logger.info("Bluetooth disconnected — background audio restarted fresh")
+        elif self.radio_active:
+            logger.info("Bluetooth disconnected but radio active, staying paused")
         elif self.quiet_active:
             logger.info("Bluetooth disconnected but in quiet hours, staying paused")

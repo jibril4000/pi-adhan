@@ -118,7 +118,7 @@ def test_radio_loop(client: MMRApiClient, tracks: list[dict], duration: int) -> 
     from src.config import (
         AppConfig, AudioConfig, BackgroundConfig, CalculationConfig,
         LocationConfig, LoggingConfig, PrayersConfig, RadioConfig,
-        SchedulerConfig,
+        RadioScheduleEntry, SchedulerConfig, VALID_DAYS,
     )
     from src.logger import setup_logging
     from src.radio import RadioPlayer
@@ -131,8 +131,11 @@ def test_radio_loop(client: MMRApiClient, tracks: list[dict], duration: int) -> 
         password=client.password,
         volume=50,
         fade_duration=1.0,
-        schedule_start="00:00",
-        schedule_end="23:59",
+        schedule=[RadioScheduleEntry(
+            days=list(VALID_DAYS),
+            start="00:00",
+            end="23:59",
+        )],
         shuffle=True,
     )
     config = AppConfig(

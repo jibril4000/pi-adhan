@@ -56,13 +56,18 @@ def main():
     if config.radio.enabled:
         from src.radio import RadioPlayer
 
-        background = RadioPlayer(config)
+        bg_player = None
+        if config.background.enabled:
+            bg_player = BackgroundPlayer(config)
+            bg_player.start()
+            logger.info("Background audio enabled (fallback outside radio window)")
+
+        background = RadioPlayer(config, background_player=bg_player)
         background.start()
-        logger.info(
-            "MMR radio enabled (%s–%s)",
-            config.radio.schedule_start,
-            config.radio.schedule_end,
-        )
+        logger.info("MMR radio enabled")
+        for entry in config.radio.schedule:
+            days_str = ", ".join(d.capitalize() for d in entry.days)
+            logger.info("  Radio window: %s %s–%s", days_str, entry.start, entry.end)
 
         bt_monitor = BluetoothMonitor(background)
         bt_monitor.start()

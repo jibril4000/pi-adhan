@@ -73,10 +73,16 @@ radio:
   # Fade out/in duration in seconds before/after adhan
   fade_duration: 3.0
 
-  # Daily play window (HH:MM, 24-hour format)
-  # Radio streams only during this window. Silent outside it.
-  schedule_start: "07:00"
-  schedule_end: "19:00"
+  # Per-day play windows (HH:MM, 24-hour format)
+  # Radio streams only during these windows. Outside the window, background
+  # audio (if enabled) takes over.
+  schedule:
+    - days: [sunday, monday, tuesday, wednesday]
+      start: "07:00"
+      end: "20:00"
+    - days: [thursday, friday, saturday]
+      start: "07:00"
+      end: "19:00"
 
   # Shuffle the catalog (true) or play in order (false)
   shuffle: true
