@@ -54,6 +54,33 @@ scheduler:
   # Seconds after scheduled time to still play adhan (misfire recovery)
   misfire_grace_seconds: 300
 
+radio:
+  # Enable MMR radio streaming (plays your catalog through the Pi speakers)
+  # When enabled, this replaces background audio. Adhan still interrupts as normal.
+  enabled: false
+
+  # MMR GraphQL API endpoint
+  api_url: "https://api.mysticmeditationrecords.com/graphql"
+
+  # MMR account credentials (optional — track listing works without auth)
+  # Providing credentials may unlock higher quality streams for premium accounts.
+  email: ""
+  password: ""
+
+  # Playback volume (0-100)
+  volume: 50
+
+  # Fade out/in duration in seconds before/after adhan
+  fade_duration: 3.0
+
+  # Daily play window (HH:MM, 24-hour format)
+  # Radio streams only during this window. Silent outside it.
+  schedule_start: "07:00"
+  schedule_end: "19:00"
+
+  # Shuffle the catalog (true) or play in order (false)
+  shuffle: true
+
 logging:
   # Log file path (relative to project root)
   file: "logs/adhan.log"

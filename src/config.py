@@ -148,6 +148,36 @@ class LoggingConfig:
 
 
 @dataclass
+class RadioConfig:
+    enabled: bool = False
+    api_url: str = ""
+    email: str = ""
+    password: str = ""
+    volume: int = 50
+    fade_duration: float = 3.0
+    schedule_start: str = "07:00"
+    schedule_end: str = "19:00"
+    shuffle: bool = True
+
+    def __post_init__(self):
+        if self.enabled:
+            if not self.api_url:
+                raise ValueError("radio.api_url is required when radio is enabled")
+        if not (0 <= self.volume <= 100):
+            raise ValueError(f"Radio volume must be 0-100, got {self.volume}")
+        if self.fade_duration < 0:
+            raise ValueError(f"Radio fade duration must be >= 0, got {self.fade_duration}")
+        for t_name, t_val in [("schedule_start", self.schedule_start),
+                               ("schedule_end", self.schedule_end)]:
+            parts = t_val.split(":")
+            if len(parts) != 2:
+                raise ValueError(f"radio.{t_name} must be HH:MM, got '{t_val}'")
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError(f"Invalid radio.{t_name}: {t_val}")
+
+
+@dataclass
 class AppConfig:
     location: LocationConfig
     calculation: CalculationConfig
@@ -156,6 +186,7 @@ class AppConfig:
     background: BackgroundConfig
     scheduler: SchedulerConfig
     logging: LoggingConfig
+    radio: RadioConfig
     base_dir: str = ""
 
 
@@ -235,6 +266,19 @@ def load_config(config_path: str) -> AppConfig:
         level=log_raw.get("level", "INFO"),
     )
 
+    radio_raw = raw.get("radio", {})
+    radio = RadioConfig(
+        enabled=bool(radio_raw.get("enabled", False)),
+        api_url=radio_raw.get("api_url", ""),
+        email=radio_raw.get("email", ""),
+        password=radio_raw.get("password", ""),
+        volume=int(radio_raw.get("volume", 50)),
+        fade_duration=float(radio_raw.get("fade_duration", 3.0)),
+        schedule_start=radio_raw.get("schedule_start", "07:00"),
+        schedule_end=radio_raw.get("schedule_end", "19:00"),
+        shuffle=bool(radio_raw.get("shuffle", True)),
+    )
+
     return AppConfig(
         location=location,
         calculation=calculation,
@@ -243,6 +287,7 @@ def load_config(config_path: str) -> AppConfig:
         background=background,
         scheduler=scheduler,
         logging=logging_cfg,
+        radio=radio,
         base_dir=base_dir,
     )
 

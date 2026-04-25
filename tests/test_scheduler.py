@@ -14,6 +14,7 @@ from src.config import (
     LocationConfig,
     LoggingConfig,
     PrayersConfig,
+    RadioConfig,
     SchedulerConfig,
     PRAYER_NAMES,
 )
@@ -31,6 +32,7 @@ def config(tmp_path):
         background=BackgroundConfig(),
         scheduler=SchedulerConfig(daily_recalc_time="00:05", misfire_grace_seconds=300),
         logging=LoggingConfig(),
+        radio=RadioConfig(),
         base_dir=str(tmp_path),
     )
 

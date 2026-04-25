@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.config import AppConfig, AudioConfig, BackgroundConfig, CalculationConfig, LocationConfig, LoggingConfig, PrayersConfig, SchedulerConfig
+from src.config import AppConfig, AudioConfig, BackgroundConfig, CalculationConfig, LocationConfig, LoggingConfig, PrayersConfig, RadioConfig, SchedulerConfig
 from src.player import AdhanPlayer
 
 
@@ -29,6 +29,7 @@ def config(tmp_path):
         background=BackgroundConfig(),
         scheduler=SchedulerConfig(),
         logging=LoggingConfig(),
+        radio=RadioConfig(),
         base_dir=str(tmp_path),
     )
 

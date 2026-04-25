@@ -53,7 +53,21 @@ def main():
     background = None
     bt_monitor = None
 
-    if config.background.enabled:
+    if config.radio.enabled:
+        from src.radio import RadioPlayer
+
+        background = RadioPlayer(config)
+        background.start()
+        logger.info(
+            "MMR radio enabled (%s–%s)",
+            config.radio.schedule_start,
+            config.radio.schedule_end,
+        )
+
+        bt_monitor = BluetoothMonitor(background)
+        bt_monitor.start()
+
+    elif config.background.enabled:
         background = BackgroundPlayer(config)
         background.start()
         logger.info("Background audio enabled")
