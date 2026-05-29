@@ -215,8 +215,8 @@ class BackgroundPlayer:
     def fade_in(self) -> None:
         """Unfreeze the process and gradually increase volume."""
         logger.info("Fading in background audio")
-        self._set_volume(0)
         self._unfreeze()
+        self._set_volume(0)
 
         step_delay = self.fade_duration / FADE_STEPS
         volume_step = self.volume / FADE_STEPS

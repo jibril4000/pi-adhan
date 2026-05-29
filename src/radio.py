@@ -110,7 +110,10 @@ class RadioPlayer:
         if self._playing:
             with self._lock:
                 self.adhan_active = True
-            self.fade_out()
+            if self._paused:
+                logger.info("Radio already paused, skipping fade-out for adhan")
+            else:
+                self.fade_out()
         elif self._background:
             self._background.notify_adhan_start()
 
@@ -168,8 +171,8 @@ class RadioPlayer:
     def fade_in(self) -> None:
         """Unfreeze mpv and gradually restore volume."""
         logger.info("Fading in radio")
-        self._set_volume(0)
         self._unfreeze()
+        self._set_volume(0)
         step_delay = self.fade_duration / FADE_STEPS
         volume_step = self.volume / FADE_STEPS
         for i in range(FADE_STEPS):
