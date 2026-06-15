@@ -44,12 +44,16 @@ sudo cp "${SCRIPT_DIR}/adhan.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable adhan
 
-# 6. Install auto-recovery backstops (hardware watchdog + journal retention)
-echo "Installing watchdog and journald drop-ins..."
-sudo mkdir -p /etc/systemd/system.conf.d /etc/systemd/journald.conf.d
-sudo cp "${SCRIPT_DIR}/system.conf.d/watchdog.conf" /etc/systemd/system.conf.d/
+# 6. Install journal retention drop-in (so the next failure stays diagnosable).
+# NOTE: the hardware watchdog is intentionally NOT configured here — Raspberry Pi
+# OS already ships RuntimeWatchdogSec=1m enabled by default. Do not re-add a
+# watchdog drop-in, and never run `daemon-reexec` here: a reexec during heavy
+# SD-card I/O (e.g. a deploy's git pull) once stalled the watchdog pet past the
+# BCM ~15s limit and hard-reset the Pi mid-write, truncating files to 0 bytes.
+echo "Installing journald retention drop-in..."
+sudo mkdir -p /etc/systemd/journald.conf.d
 sudo cp "${SCRIPT_DIR}/journald.conf.d/retention.conf" /etc/systemd/journald.conf.d/
-sudo systemctl daemon-reexec          # apply RuntimeWatchdogSec (hardware watchdog)
+sync
 sudo systemctl restart systemd-journald
 
 echo ""
