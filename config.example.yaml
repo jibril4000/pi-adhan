@@ -87,6 +87,32 @@ radio:
   # Shuffle the catalog (true) or play in order (false)
   shuffle: true
 
+alerts:
+  # Email alerts via Resend when the service is down, audio fails, or errors
+  # pile up. Sent by a separate systemd timer (adhan-healthcheck.timer) that
+  # runs independently of the main daemon, so you still get an email even if
+  # the daemon is dead or wedged.
+  enabled: false
+
+  # Resend API key (https://resend.com/api-keys). Keep this private — config.yaml
+  # is gitignored, so the key never lands in the repo.
+  resend_api_key: ""
+
+  # Sender must be on a domain you've verified in Resend (or onboarding@resend.dev
+  # for testing). Recipients can be one address or a list.
+  email_from: "live@omninine.studio"
+  email_to:
+    - "sufimeditationzawiya@gmail.com"
+
+  # Trip an alert when more than this many ERROR lines appear within the window.
+  error_threshold: 10
+  error_window_minutes: 15
+
+  # Send one "all healthy" email per day at this local hour (0-23). Silence then
+  # becomes a signal: no heartbeat means something is wrong.
+  heartbeat: true
+  heartbeat_hour: 9
+
 logging:
   # Log file path (relative to project root)
   file: "logs/adhan.log"

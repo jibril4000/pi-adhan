@@ -1,0 +1,13 @@
+[Unit]
+Description=Adhan health check (emails alerts via Resend)
+# Independent of adhan.service on purpose: it must run even when adhan is dead.
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+WorkingDirectory=/opt/adhan
+ExecStart=/opt/adhan/venv/bin/python scripts/healthcheck.py
+# A failing health check must never cascade — just log and move on.
+TimeoutStartSec=60
+Environment=PYTHONUNBUFFERED=1

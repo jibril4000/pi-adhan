@@ -38,11 +38,14 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 5. Install systemd service
+# 5. Install systemd service + health-check timer
 echo "Installing systemd service..."
 sudo cp "${SCRIPT_DIR}/adhan.service" /etc/systemd/system/
+sudo cp "${SCRIPT_DIR}/adhan-healthcheck.service" /etc/systemd/system/
+sudo cp "${SCRIPT_DIR}/adhan-healthcheck.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable adhan
+sudo systemctl enable adhan-healthcheck.timer   # email alerts (needs alerts.* in config.yaml)
 
 # 6. Install journal retention drop-in (so the next failure stays diagnosable).
 # NOTE: the hardware watchdog is intentionally NOT configured here — Raspberry Pi

@@ -189,6 +189,30 @@ class RadioConfig:
 
 
 @dataclass
+class AlertConfig:
+    enabled: bool = False
+    resend_api_key: str = ""
+    email_from: str = "live@omninine.studio"
+    email_to: list[str] = field(default_factory=lambda: ["sufimeditationzawiya@gmail.com"])
+    # Number of ERROR log lines within error_window_minutes that trips an alert.
+    error_threshold: int = 10
+    error_window_minutes: int = 15
+    # Send one "all healthy" email per day at this local hour (0-23).
+    heartbeat: bool = True
+    heartbeat_hour: int = 9
+
+    def __post_init__(self):
+        if isinstance(self.email_to, str):
+            self.email_to = [e.strip() for e in self.email_to.split(",") if e.strip()]
+        if self.enabled and not self.resend_api_key:
+            raise ValueError("alerts.resend_api_key is required when alerts are enabled")
+        if self.enabled and not self.email_to:
+            raise ValueError("alerts.email_to is required when alerts are enabled")
+        if not (0 <= self.heartbeat_hour <= 23):
+            raise ValueError(f"alerts.heartbeat_hour must be 0-23, got {self.heartbeat_hour}")
+
+
+@dataclass
 class AppConfig:
     location: LocationConfig
     calculation: CalculationConfig
@@ -198,6 +222,7 @@ class AppConfig:
     scheduler: SchedulerConfig
     logging: LoggingConfig
     radio: RadioConfig
+    alerts: AlertConfig = field(default_factory=AlertConfig)
     base_dir: str = ""
 
 
@@ -303,6 +328,18 @@ def load_config(config_path: str) -> AppConfig:
         shuffle=bool(radio_raw.get("shuffle", True)),
     )
 
+    alerts_raw = raw.get("alerts", {})
+    alerts = AlertConfig(
+        enabled=bool(alerts_raw.get("enabled", False)),
+        resend_api_key=alerts_raw.get("resend_api_key", ""),
+        email_from=alerts_raw.get("email_from", "live@omninine.studio"),
+        email_to=alerts_raw.get("email_to", ["sufimeditationzawiya@gmail.com"]),
+        error_threshold=int(alerts_raw.get("error_threshold", 10)),
+        error_window_minutes=int(alerts_raw.get("error_window_minutes", 15)),
+        heartbeat=bool(alerts_raw.get("heartbeat", True)),
+        heartbeat_hour=int(alerts_raw.get("heartbeat_hour", 9)),
+    )
+
     return AppConfig(
         location=location,
         calculation=calculation,
@@ -312,6 +349,7 @@ def load_config(config_path: str) -> AppConfig:
         scheduler=scheduler,
         logging=logging_cfg,
         radio=radio,
+        alerts=alerts,
         base_dir=base_dir,
     )
 

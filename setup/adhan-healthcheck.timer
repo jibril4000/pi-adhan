@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the adhan health check every 5 minutes
+
+[Timer]
+# First run shortly after boot, then every 5 minutes.
+OnBootSec=2min
+OnUnitActiveSec=5min
+# If the Pi was off when a run was due, run once on the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
