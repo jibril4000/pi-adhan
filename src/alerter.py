@@ -43,6 +43,9 @@ def send_email(
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            # Resend's edge (Cloudflare) 403s the default Python-urllib UA as a
+            # suspected bot; a normal UA gets through.
+            "User-Agent": "adhan-healthcheck/1.0",
         },
         method="POST",
     )
