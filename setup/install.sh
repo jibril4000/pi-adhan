@@ -44,6 +44,14 @@ sudo cp "${SCRIPT_DIR}/adhan.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable adhan
 
+# 6. Install auto-recovery backstops (hardware watchdog + journal retention)
+echo "Installing watchdog and journald drop-ins..."
+sudo mkdir -p /etc/systemd/system.conf.d /etc/systemd/journald.conf.d
+sudo cp "${SCRIPT_DIR}/system.conf.d/watchdog.conf" /etc/systemd/system.conf.d/
+sudo cp "${SCRIPT_DIR}/journald.conf.d/retention.conf" /etc/systemd/journald.conf.d/
+sudo systemctl daemon-reexec          # apply RuntimeWatchdogSec (hardware watchdog)
+sudo systemctl restart systemd-journald
+
 echo ""
 echo "=== Setup Complete ==="
 echo ""

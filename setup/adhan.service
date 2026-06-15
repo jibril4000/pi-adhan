@@ -2,14 +2,22 @@
 Description=Adhan Prayer Time Playback Service
 After=network-online.target sound.target
 Wants=network-online.target
+# Never permanently give up restarting — retry forever (paced by RestartSec).
+StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+# Layer 2: app sends READY=1 when up and WATCHDOG=1 heartbeats every 45s.
+# If the process freezes and heartbeats stop, systemd kills + restarts it.
+Type=notify
+NotifyAccess=main
+WatchdogSec=180
+TimeoutStartSec=120
 User=pi
 Group=pi
 WorkingDirectory=/opt/adhan
 ExecStart=/opt/adhan/venv/bin/python -m src.main
-Restart=on-failure
+# Layer 1: restart on ANY exit (crash or clean), not just failures.
+Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

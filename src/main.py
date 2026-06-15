@@ -11,6 +11,11 @@ from src.config import load_config, validate_audio_files
 from src.logger import setup_logging
 from src.player import AdhanPlayer
 from src.scheduler import AdhanScheduler
+from src.systemd_notify import SystemdNotifier
+
+# How often the main thread pings the systemd watchdog. Must stay well under
+# WatchdogSec in the unit file (currently 180s) to leave a wide safety margin.
+WATCHDOG_PING_INTERVAL = 45
 
 
 def main():
@@ -103,8 +108,17 @@ def main():
     scheduler.start()
     logger.info("Adhan system running. Press Ctrl+C to stop.")
 
-    # Block until shutdown signal
-    shutdown_event.wait()
+    # Signal readiness to systemd, then keep the watchdog fed until shutdown.
+    # The ping rides on the main thread, so it only stops if the whole process
+    # is wedged — systemd then restarts us. Real work lives in other threads,
+    # so slow fades/network calls can never trip a false watchdog timeout.
+    notifier = SystemdNotifier()
+    notifier.ready()
+    if notifier.enabled:
+        logger.info("systemd watchdog heartbeat active (every %ds)", WATCHDOG_PING_INTERVAL)
+
+    while not shutdown_event.wait(WATCHDOG_PING_INTERVAL):
+        notifier.watchdog()
     logger.info("Adhan playback system stopped")
 
 
