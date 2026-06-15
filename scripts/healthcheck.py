@@ -162,30 +162,39 @@ def main() -> int:
 
     current_keys = set(current)
 
-    def notify(subject: str, body: str) -> None:
+    def notify(subject: str, body: str) -> bool:
         ok, err = send_email(
             alerts.resend_api_key, alerts.email_from, alerts.email_to,
             subject, body,
         )
         if not ok:
             print(f"healthcheck: email failed: {err}", file=sys.stderr)
+        return ok
+
+    # Only record a condition as "notified" once its email actually sends, so a
+    # transient Resend outage is retried on the next run instead of swallowed.
+    notified = set(prev_active)
 
     # --- New problems ---
     for key in current_keys - prev_active:
-        notify(
+        sent = notify(
             f"[Adhan Pi] ALERT: {LABELS[key]} ({host})",
             f"{LABELS[key]} on {host} at {now:%Y-%m-%d %H:%M:%S}.\n\n"
             f"Details:\n{current[key]}\n\n"
             f"Service: {active_state}/{sub_state}, restarts={restarts}.",
         )
+        if sent:
+            notified.add(key)
 
     # --- Resolved problems ---
     for key in prev_active - current_keys:
-        notify(
+        sent = notify(
             f"[Adhan Pi] RESOLVED: {LABELS[key]} ({host})",
             f"{LABELS[key]} has cleared on {host} at {now:%Y-%m-%d %H:%M:%S}.\n"
             f"Service is now {active_state}/{sub_state}.",
         )
+        if sent:
+            notified.discard(key)
 
     # --- Daily heartbeat ---
     heartbeat_date = state.get("last_heartbeat_date")
@@ -193,15 +202,20 @@ def main() -> int:
     if (alerts.heartbeat and heartbeat_date != today
             and now.hour >= alerts.heartbeat_hour):
         if not current_keys:
-            notify(
+            # Mark the day done only on a successful send, else retry next run.
+            if notify(
                 f"[Adhan Pi] Daily check: all healthy ({host})",
                 f"Adhan service on {host} is healthy at {now:%Y-%m-%d %H:%M:%S}.\n"
                 f"Service: {active_state}/{sub_state}, restarts={restarts}.\n"
                 f"No errors in the last {alerts.error_window_minutes} min.",
-            )
-        state["last_heartbeat_date"] = today
+            ):
+                state["last_heartbeat_date"] = today
+        else:
+            # Unhealthy at heartbeat time — the alert email covers it; don't also
+            # send a late heartbeat once it recovers.
+            state["last_heartbeat_date"] = today
 
-    state["active_alerts"] = sorted(current_keys)
+    state["active_alerts"] = sorted(notified)
     state["last_restarts"] = restarts
     save_state(state_path, state)
     return 0
