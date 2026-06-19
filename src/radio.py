@@ -28,6 +28,8 @@ SOCKET_PATH = "/tmp/mmr-radio-mpv-socket"
 FADE_STEPS = 20
 WATCHDOG_INTERVAL = 10  # seconds
 CATALOG_REFRESH_HOURS = 24
+SILENCE_FALLBACK_SECS = 30  # radio silent this long → hand audio to background
+RESUME_STABLE_SECS = 20  # radio must play steadily this long → reclaim from background
 
 
 class RadioPlayer:
@@ -56,6 +58,9 @@ class RadioPlayer:
         self._event_thread: threading.Thread | None = None
         self._paused = False
         self._playing = False  # True when actively streaming (inside window)
+        self._audible = False  # True when the radio is the live audible source
+        self._idle_secs = 0.0  # how long the radio has produced no sound
+        self._stable_secs = 0.0  # how long the radio has played steadily while in fallback
 
         # State flags (same as BackgroundPlayer)
         self.adhan_active = False
@@ -107,7 +112,7 @@ class RadioPlayer:
 
     def notify_adhan_start(self) -> None:
         """Called when adhan is about to play."""
-        if self._playing:
+        if self._playing and self._audible:
             with self._lock:
                 self.adhan_active = True
             if self._paused:
@@ -119,7 +124,7 @@ class RadioPlayer:
 
     def notify_adhan_end(self) -> None:
         """Called when adhan playback is done."""
-        if self._playing:
+        if self._playing and self._audible:
             with self._lock:
                 self.adhan_active = False
                 should_resume = not self.bluetooth_active
@@ -132,7 +137,7 @@ class RadioPlayer:
 
     def notify_bluetooth_connect(self) -> None:
         """Called when a Bluetooth audio source connects."""
-        if self._playing:
+        if self._playing and self._audible:
             with self._lock:
                 self.bluetooth_active = True
                 should_pause = not self.adhan_active
@@ -144,7 +149,7 @@ class RadioPlayer:
 
     def notify_bluetooth_disconnect(self) -> None:
         """Called when Bluetooth audio source disconnects."""
-        if self._playing:
+        if self._playing and self._audible:
             with self._lock:
                 self.bluetooth_active = False
                 should_resume = not self.adhan_active
@@ -207,6 +212,9 @@ class RadioPlayer:
         if self._playing:
             return
         logger.info("Radio starting playback")
+        self._audible = True
+        self._idle_secs = 0.0
+        self._stable_secs = 0.0
         self._start_mpv()
         self._playing = True
         self._play_next()
@@ -217,6 +225,9 @@ class RadioPlayer:
             return
         logger.info("Radio stopping playback")
         self._playing = False
+        self._audible = False
+        self._idle_secs = 0.0
+        self._stable_secs = 0.0
         self._kill_mpv()
         self._current_track = None
 
@@ -278,12 +289,15 @@ class RadioPlayer:
         if os.path.exists(SOCKET_PATH):
             os.remove(SOCKET_PATH)
 
+        # Stay muted while the background is the audible fallback, so the
+        # radio can keep buffering/probing without bleeding through.
+        vol = self.volume if self._audible else 0
         cmd = [
             "mpv",
             "--idle=yes",
             "--no-video",
             "--really-quiet",
-            f"--volume={self.volume}",
+            f"--volume={vol}",
             f"--input-ipc-server={SOCKET_PATH}",
         ]
         logger.debug("Starting mpv: %s", " ".join(cmd))
@@ -361,6 +375,66 @@ class RadioPlayer:
 
     def _set_volume(self, volume: int) -> None:
         self._send_command(["set_property", "volume", volume])
+
+    # ── Audible fallback ─────────────────────────────────────────
+
+    def _is_emitting(self) -> bool:
+        """True when mpv is actually producing audio right now.
+
+        Uses mpv's ``core-idle`` property, which is true whenever playback is
+        idle, buffering, or at EOF — i.e. no sound is coming out. If mpv can't
+        be reached, assume it's silent.
+        """
+        resp = self._send_command(["get_property", "core-idle"])
+        if not resp or resp.get("error") != "success":
+            return False
+        return not bool(resp.get("data", True))
+
+    def _enter_fallback(self) -> None:
+        """Radio went silent — hand the audible slot to the background player."""
+        logger.warning(
+            "Radio produced no audio for %ds — falling back to background",
+            int(self._idle_secs),
+        )
+        self._audible = False
+        self._idle_secs = 0.0
+        self._stable_secs = 0.0
+        self._set_volume(0)  # mute so recovery buffering stays inaudible
+        if self._background:
+            self._background.radio_active = False
+            if (not self._background.adhan_active
+                    and not self._background.bluetooth_active
+                    and not self._background.quiet_active):
+                self._background._restart_mpv()
+                logger.info("Background audio resumed as radio fallback")
+        # Refresh the catalog in the background so the muted radio probes with
+        # fresh (non-expired) URLs — a common cause of mid-window stalls.
+        threading.Thread(target=self._refresh_and_probe, daemon=True).start()
+
+    def _refresh_and_probe(self) -> None:
+        """Refresh the catalog and load a fresh track for the muted radio."""
+        self._refresh_catalog()
+        if not self._audible and self._playing:
+            with self._lock:
+                self._build_queue()
+            self._play_next()
+
+    def _exit_fallback(self) -> None:
+        """Radio is playing steadily again — reclaim the audible slot."""
+        logger.info("Radio playing steadily again — reclaiming from background")
+        self._audible = True
+        self._idle_secs = 0.0
+        self._stable_secs = 0.0
+        if self._background and self._background.radio_active is False:
+            self._background.radio_active = True
+            self._background._freeze()
+            logger.info("Background audio frozen — radio reclaimed")
+        # The current track is already playing (just muted); fade it up.
+        step_delay = self.fade_duration / FADE_STEPS
+        volume_step = self.volume / FADE_STEPS
+        for i in range(FADE_STEPS):
+            self._set_volume(min(self.volume, int(volume_step * (i + 1))))
+            time.sleep(step_delay)
 
     # ── mpv event listener ───────────────────────────────────────
 
@@ -488,6 +562,31 @@ class RadioPlayer:
                         self._process.returncode,
                     )
                     self._restart_mpv()
+
+                # ── Audible fallback ─────────────────────────
+                # Background fills in whenever the radio isn't actually making
+                # sound (stall, empty queue, dead stream) and steps back once
+                # the radio plays steadily again. Skipped during adhan/Bluetooth
+                # pauses, which are intentional silences handled elsewhere.
+                bt_active = self.bluetooth_active or (
+                    self._background is not None and self._background.bluetooth_active)
+                ad_active = self.adhan_active or (
+                    self._background is not None and self._background.adhan_active)
+                if self._playing and not self._paused and not bt_active and not ad_active:
+                    if self._audible:
+                        if self._is_emitting():
+                            self._idle_secs = 0.0
+                        else:
+                            self._idle_secs += WATCHDOG_INTERVAL
+                            if self._idle_secs >= SILENCE_FALLBACK_SECS:
+                                self._enter_fallback()
+                    else:
+                        if self._is_emitting():
+                            self._stable_secs += WATCHDOG_INTERVAL
+                            if self._stable_secs >= RESUME_STABLE_SECS:
+                                self._exit_fallback()
+                        else:
+                            self._stable_secs = 0.0
 
                 # ── Catalog refresh (daily) ──────────────────
                 if self._should_refresh_catalog() and self.api_client.access_token:
