@@ -458,6 +458,22 @@ class RadioPlayer:
                             self._background._restart_mpv()
                             logger.info("Background audio resumed after radio window")
 
+                # ── Recovery: catalog arrived after the window began ──
+                # At window entry the catalog can be empty (e.g. the network
+                # is still down after a power outage). The entry branch above
+                # only fires on transition, so once the catalog repopulates we
+                # must start streaming here or the radio stays idle all day.
+                elif in_window and self._catalog and not self._playing:
+                    bt = self._background.bluetooth_active if self._background else self.bluetooth_active
+                    ad = self._background.adhan_active if self._background else self.adhan_active
+                    if not bt and not ad:
+                        logger.info("Catalog recovered mid-window — starting radio")
+                        if self._background and not self._background.radio_active:
+                            self._background.radio_active = True
+                            self._background._freeze()
+                            logger.info("Background audio frozen for radio window")
+                        self._start_playing()
+
                 was_in_window = in_window
 
                 # ── Crash recovery ───────────────────────────
