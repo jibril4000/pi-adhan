@@ -3,7 +3,9 @@
 import logging
 import os
 import subprocess
+import time
 
+from src import bt_media
 from src.config import AppConfig, is_quiet_time
 
 logger = logging.getLogger("adhan.player")
@@ -63,6 +65,12 @@ class AdhanPlayer:
         if self.background:
             self.background.notify_adhan_start()
 
+        # Pause the phone's own Bluetooth audio (a separate stream our players
+        # can't mute). Resumed in the finally block once the adhan is done.
+        bt_player = bt_media.pause_if_playing()
+        if bt_player:
+            time.sleep(0.5)  # let the A2DP stream settle before the adhan
+
         volume = self.config.audio.volume
         cmd = [
             "mpv",
@@ -97,6 +105,8 @@ class AdhanPlayer:
             logger.error("mpv not found. Install it: sudo apt install mpv")
             return False
         finally:
+            # Resume the phone's Bluetooth audio if we paused it
+            bt_media.resume(bt_player)
             # Resume background after adhan (whether it succeeded or not)
             if self.background:
                 self.background.notify_adhan_end()
