@@ -192,14 +192,18 @@ class RadioPlayer:
     def _bt_or_adhan_active(self) -> bool:
         """True if Bluetooth or an adhan is currently taking the audio slot.
 
-        Reads the background player's flags, which are maintained even while the
-        radio is stopped (the radio's own flags are only tracked while it plays).
-        This is the source of truth when deciding whether it's safe to *start*
-        the radio.
+        Checks both the radio's own flags and the background player's. The two
+        diverge depending on which was playing when the event arrived: a device
+        connecting while the radio plays sets the radio's flag, while one
+        connecting while the radio is stopped sets the background's. Either means
+        it is NOT safe to start the radio.
         """
+        bt = self.bluetooth_active
+        ad = self.adhan_active
         if self._background:
-            return self._background.bluetooth_active or self._background.adhan_active
-        return self.bluetooth_active or self.adhan_active
+            bt = bt or self._background.bluetooth_active
+            ad = ad or self._background.adhan_active
+        return bt or ad
 
     def _is_in_window(self) -> bool:
         """Check if the current time is within any configured schedule window.
@@ -568,9 +572,7 @@ class RadioPlayer:
                 # only fires on transition, so once the catalog repopulates we
                 # must start streaming here or the radio stays idle all day.
                 elif in_window and self._catalog and not self._playing:
-                    bt = self._background.bluetooth_active if self._background else self.bluetooth_active
-                    ad = self._background.adhan_active if self._background else self.adhan_active
-                    if not bt and not ad:
+                    if not self._bt_or_adhan_active():
                         logger.info("Catalog recovered mid-window — starting radio")
                         if self._background and not self._background.radio_active:
                             self._background.radio_active = True
