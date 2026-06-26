@@ -68,14 +68,18 @@ def main():
             logger.info("Background audio enabled (fallback outside radio window)")
 
         background = RadioPlayer(config, background_player=bg_player)
-        background.start()
         logger.info("MMR radio enabled")
         for entry in config.radio.schedule:
             days_str = ", ".join(d.capitalize() for d in entry.days)
             logger.info("  Radio window: %s %s–%s", days_str, entry.start, entry.end)
 
+        # Start the Bluetooth monitor before the radio so a device already
+        # connected at startup is registered first. The radio then sees it via
+        # _bt_or_adhan_active() and defers, instead of briefly playing over it.
         bt_monitor = BluetoothMonitor(background)
         bt_monitor.start()
+
+        background.start()
 
     elif config.background.enabled:
         background = BackgroundPlayer(config)
