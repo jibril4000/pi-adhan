@@ -93,8 +93,9 @@ class RadioPlayer:
         )
         self._watchdog_thread.start()
 
-        # If we're already inside the play window, start immediately
-        if self._catalog and self._is_in_window():
+        # If we're already inside the play window, start immediately — unless
+        # Bluetooth or an adhan currently owns the audio slot.
+        if self._catalog and self._is_in_window() and not self._bt_or_adhan_active():
             if self._background:
                 self._background.radio_active = True
                 self._background._freeze()
@@ -187,6 +188,18 @@ class RadioPlayer:
         logger.info("Radio faded in (volume: %d)", self.volume)
 
     # ── Schedule window ──────────────────────────────────────────
+
+    def _bt_or_adhan_active(self) -> bool:
+        """True if Bluetooth or an adhan is currently taking the audio slot.
+
+        Reads the background player's flags, which are maintained even while the
+        radio is stopped (the radio's own flags are only tracked while it plays).
+        This is the source of truth when deciding whether it's safe to *start*
+        the radio.
+        """
+        if self._background:
+            return self._background.bluetooth_active or self._background.adhan_active
+        return self.bluetooth_active or self.adhan_active
 
     def _is_in_window(self) -> bool:
         """Check if the current time is within any configured schedule window.
@@ -522,15 +535,21 @@ class RadioPlayer:
 
                 # ── Window transitions ───────────────────────
                 if in_window and not was_in_window:
-                    logger.info("Entering play window — starting radio")
-                    if self._background:
-                        self._background.radio_active = True
-                        self._background._freeze()
-                        logger.info("Background audio frozen for radio window")
+                    logger.info("Entering play window")
                     if not self._catalog:
                         self._try_login_and_fetch()
-                    if self._catalog:
+                    # Don't start over Bluetooth or an adhan — the mid-window
+                    # recovery branch below starts the radio once that clears.
+                    if self._catalog and not self._bt_or_adhan_active():
+                        if self._background:
+                            self._background.radio_active = True
+                            self._background._freeze()
+                            logger.info("Background audio frozen for radio window")
                         self._start_playing()
+                    else:
+                        logger.info(
+                            "Radio start deferred (bluetooth/adhan active or no catalog)"
+                        )
 
                 elif not in_window and was_in_window:
                     logger.info("Leaving play window — stopping radio")
