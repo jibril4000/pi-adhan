@@ -47,6 +47,15 @@ background:
   # Fade out/in duration in seconds before/after adhan
   fade_duration: 3.0
 
+  # Quiet hours: windows where ALL audio stays silent (background and radio).
+  # Adhan is also skipped during these windows. Times are local (HH:MM), and
+  # each entry lists the days it applies to.
+  quiet_hours:
+    # Friday Jummah — stay silent during the prayer (padded for safety)
+    - days: [friday]
+      start: "15:00"
+      end: "16:30"
+
 scheduler:
   # Time (HH:MM) to recalculate prayer times daily
   daily_recalc_time: "00:05"

@@ -20,7 +20,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.api_client import MMRApiClient
-from src.config import AppConfig
+from src.config import AppConfig, is_quiet_time
 
 logger = logging.getLogger("adhan.radio")
 
@@ -189,7 +189,16 @@ class RadioPlayer:
     # ── Schedule window ──────────────────────────────────────────
 
     def _is_in_window(self) -> bool:
-        """Check if the current time is within any configured schedule window."""
+        """Check if the current time is within any configured schedule window.
+
+        Quiet hours (e.g. the Friday Jummah window) override the schedule: the
+        radio goes silent during them, just like the background player, so the
+        whole system stays quiet.
+        """
+        if is_quiet_time(
+            self.config.background.quiet_hours, self.config.location.timezone
+        ):
+            return False
         now = datetime.now(ZoneInfo(self.config.location.timezone))
         day_name = now.strftime("%A").lower()
         current = now.hour * 60 + now.minute
@@ -528,7 +537,9 @@ class RadioPlayer:
                     self._stop_playing()
                     if self._background:
                         self._background.radio_active = False
-                        if not self._background.adhan_active and not self._background.bluetooth_active:
+                        if (not self._background.adhan_active
+                                and not self._background.bluetooth_active
+                                and not self._background.quiet_active):
                             self._background._restart_mpv()
                             logger.info("Background audio resumed after radio window")
 
